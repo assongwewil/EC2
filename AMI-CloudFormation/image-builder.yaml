@@ -26,7 +26,7 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
 
 Resources:
-
+#Image Builder Pipeline to run the build / USG - tool to harden server / level 1 & 2 CIS hardening 
   ImagePipeline:
     Type: AWS::ImageBuilder::ImagePipeline
     Properties:
@@ -40,6 +40,101 @@ Resources:
       - DistributionConfiguration
       - ImageRecipe
       - InfrastructureConfiguration
+
+#Optional - Add cron object to schedule build or Pipeline will run when initiated 
+
+#Use based image to create desire image/ we can use managed image or customer image/ AMI id is different for diff regions / USE aws ec2 describe image to get customer 
+#image ID based on the region 
+
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Components:
+        - ComponentArn: !GetAtt Component.Arn
+      Name: !Sub "${AppName} Image"
+      ParentImage: !Ref LatestAmiId
+      Version: !Ref ImageVersion
+    DependsOn:
+      - Component
+
+#Instance Configuration / we can add userData to upgrade packages 
+  InfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      InstanceProfileName: !Sub "${AppName}ImageBuilderInstanceProfile"
+      InstanceTypes:
+        - !Ref InstanceType
+      KeyPair: !Ref KeyPair
+      Name: !Sub "${AppName} Image - Infrastructure Configuration"
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref ImageBuilderSecurityGroup
+    DependsOn:
+      - ImageBuilderInstanceProfile
+
+#Run script here to customer your image/ add software (yaml or json format) use AWS Build components eg amazon-cloudwatch-agent-linux or create your own 
+#components/  Normally each component supposed to have build, validate, and test phase. We are only using build phase in this case 
+  Component:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: !Sub "${AppName} Image - Component"
+      Platform: Linux
+      Version: !Ref ImageVersion
+      Data: |
+        name: Python3
+        description: Install the latest version of Python 3
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallPython3
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - sudo yum install python3 -y
+#install usg 
+        name: InstallUSG
+        description: Install usg 
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: InstallUSG
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - cloud-init status --wait  #wait until instance initialization is complete 
+                    - sudo ua unable usg    #enable usg that comes with ubuntu 20.04 manage by pro or ua
+                    - sudo apt-get install usg -y 
+#usg fix 
+        name: usgFix 
+        description: this runs usg fix against CIS level 1 server 
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: usgFix 
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - sudo usg fix cis_level1_server   # we are calling usg to fix any non complient component on this server 
+                                                        #we can also run usg audit here 
+
+#we need to prevent every server created from this AMA to have the same AMI -ID 
+        name: cleanUp 
+        description: clean up
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: cleanUp 
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - sudo rm -r /var/log/ubuntu-advantage.log  #clear the logs
+                    - sudo truncate - 0 /etc/machine-id   
+                    - sudo truncate -s 0 /var/lib/dbus/machine-id 
+
 
   ImageBuilderRole:
     Type: 'AWS::IAM::Role'
@@ -66,19 +161,19 @@ Resources:
       Roles:
         - !Ref ImageBuilderRole
 
-  InfrastructureConfiguration:
-    Type: AWS::ImageBuilder::InfrastructureConfiguration
-    Properties:
-      InstanceProfileName: !Sub "${AppName}ImageBuilderInstanceProfile"
-      InstanceTypes:
-        - !Ref InstanceType
-      KeyPair: !Ref KeyPair
-      Name: !Sub "${AppName} Image - Infrastructure Configuration"
-      SubnetId: !Ref SubnetId
-      SecurityGroupIds:
-        - !Ref ImageBuilderSecurityGroup
-    DependsOn:
-      - ImageBuilderInstanceProfile
+  # InfrastructureConfiguration:
+  #   Type: AWS::ImageBuilder::InfrastructureConfiguration
+  #   Properties:
+  #     InstanceProfileName: !Sub "${AppName}ImageBuilderInstanceProfile"
+  #     InstanceTypes:
+  #       - !Ref InstanceType
+  #     KeyPair: !Ref KeyPair
+  #     Name: !Sub "${AppName} Image - Infrastructure Configuration"
+  #     SubnetId: !Ref SubnetId
+  #     SecurityGroupIds:
+  #       - !Ref ImageBuilderSecurityGroup
+  #   DependsOn:
+  #     - ImageBuilderInstanceProfile
 
   ImageBuilderSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -107,32 +202,5 @@ Resources:
                 - !Ref AWS::AccountId
           Region: !Ref AWS::Region
 
-  ImageRecipe:
-    Type: AWS::ImageBuilder::ImageRecipe
-    Properties:
-      Components:
-        - ComponentArn: !GetAtt Component.Arn
-      Name: !Sub "${AppName} Image"
-      ParentImage: !Ref LatestAmiId
-      Version: !Ref ImageVersion
-    DependsOn:
-      - Component
 
-  Component:
-    Type: AWS::ImageBuilder::Component
-    Properties:
-      Name: !Sub "${AppName} Image - Component"
-      Platform: Linux
-      Version: !Ref ImageVersion
-      Data: |
-        name: Python 3
-        description: Install the latest version of Python 3.
-        schemaVersion: 1.0
-        phases:
-          - name: build
-            steps:
-              - name: InstallPython3
-                action: ExecuteBash
-                inputs:
-                  commands:
-                    - sudo yum install python3 -y
+
