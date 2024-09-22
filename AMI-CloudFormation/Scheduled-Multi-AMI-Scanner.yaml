@@ -324,6 +324,95 @@ Resources:
       Role: !GetAtt CreateEBRuleLambdaFunctionRole.Arn
       Runtime: python3.9
 
+#Second StateMachine 
+
+  Part2StepFunctionsStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: AMIScanner-Part2-InspectorReport-Cleanup
+      DefinitionString: !Sub |
+        {
+          "Comment": "Trigger Launch of EC2 instance by Inspector Scanning",
+          "StartAt": "Create Inspector Report",
+          "States": {
+            "Create Inspector Report": {
+              "Type": "Task",
+# pass the instance Info to Inspector to scan and create report / store report in S3
+              "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-InspectorFindingsReport", # pass the instance Info to Inspector to scan and create report / store report in S3 
+              "Parameters": {
+                "INSTANCEID.$": "$.LaunchedInstanceId",
+                "AMI.$": "$.AmiId",
+                "KEYNAME.$": "$.KeyName",
+                "S3REPORTFORMAT.$": "$.S3ReportFormat",
+                "S3BUCKET.$": "$.S3Bucket"
+              },
+              "Next": "Terminate EC2",
+              "TimeoutSeconds": 5,
+              "ResultPath": null,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "States.TaskFailed"
+                  ],
+                  "BackoffRate": 1,
+                  "IntervalSeconds": 60,
+                  "MaxAttempts": 10,
+                  "Comment": "FindingReportRetryQueue"
+                }
+              ]
+            },
+#Terminate the temp instance 
+            "Terminate EC2": {
+              "Type": "Task",
+              "Parameters": {
+                "InstanceIds.$": "States.Array($.LaunchedInstanceId)"
+              },
+              "Resource": "arn:${AWS::Partition}:states:::aws-sdk:ec2:terminateInstances",  #use aws-sdk to terminate instance 
+              "Next": "Cleanup EventBridge Rule",
+              "ResultPath": null
+            },
+                "Cleanup EventBridge Rule": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-CleanupEBRule", # use lambda to delete event bridge rule 
+              "Parameters": {
+                "INSTANCE_ID.$": "$.LaunchedInstanceId"
+              },
+              "Next": "Tag Ami",
+              "TimeoutSeconds": 5,
+              "ResultPath": null
+            },
+            "Tag Ami": {
+                "Type": "Task",
+                "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-TagAMI",  #tage AMI with scanned status 
+                "Parameters": {
+                  "AMI_ID.$": "$.AmiId",
+                  "KEY_NAME": "AMIScannerStatus",
+                  "KEY_VALUE.$": "$.S3Bucket"
+                },
+                "Next": "Publish Notification",
+                "TimeoutSeconds": 5,
+                "ResultPath": null
+              },
+            "Publish Notification": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::sns:publish", # publish this messsage to this sns topic 
+              "Parameters": {
+                "TopicArn.$": "$.SnsTopic",
+                "Message": {
+                  "AWS Inspector AMI Scan status": "EC2 instance",
+                  "Instance cleanup.$": "$.LaunchedInstanceId",
+                  "Inspector report S3 Bucket.$": "$.S3Bucket",
+                  "For AMI.$": "$.AmiId"
+                }
+              },
+              "End": true
+            }
+          }
+        }
+      RoleArn: !GetAtt StateMachineRole.Arn
+      StateMachineType: STANDARD
+
+#delete EB- rule lambda 
   CleanupEBRuleLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -352,6 +441,8 @@ Resources:
       Role: !GetAtt CleanupEBRuleLambdaFunctionRole.Arn
       Runtime: python3.9
 
+
+#create inspector report lamnbda 
   CreateInspectorReportLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -392,6 +483,7 @@ Resources:
       Role: !GetAtt InspectorFindingsLambdaFunctionRole.Arn
       Runtime: python3.9
 
+#terminate temp instance 
   TerminateEC2InstanceLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -672,89 +764,89 @@ Resources:
   #       RoleArn: !GetAtt StateMachineRole.Arn
   #       StateMachineType: STANDARD
   
-  Part2StepFunctionsStateMachine:
-    Type: AWS::StepFunctions::StateMachine
-    Properties:
-      StateMachineName: AMIScanner-Part2-InspectorReport-Cleanup
-      DefinitionString: !Sub |
-        {
-          "Comment": "Trigger Launch of EC2 instance by Inspector Scanning",
-          "StartAt": "Create Inspector Report",
-          "States": {
-            "Create Inspector Report": {
-              "Type": "Task",
-              "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-InspectorFindingsReport",
-              "Parameters": {
-                "INSTANCEID.$": "$.LaunchedInstanceId",
-                "AMI.$": "$.AmiId",
-                "KEYNAME.$": "$.KeyName",
-                "S3REPORTFORMAT.$": "$.S3ReportFormat",
-                "S3BUCKET.$": "$.S3Bucket"
-              },
-              "Next": "Terminate EC2",
-              "TimeoutSeconds": 5,
-              "ResultPath": null,
-              "Retry": [
-                {
-                  "ErrorEquals": [
-                    "States.TaskFailed"
-                  ],
-                  "BackoffRate": 1,
-                  "IntervalSeconds": 60,
-                  "MaxAttempts": 10,
-                  "Comment": "FindingReportRetryQueue"
-                }
-              ]
-            },
-            "Terminate EC2": {
-              "Type": "Task",
-              "Parameters": {
-                "InstanceIds.$": "States.Array($.LaunchedInstanceId)"
-              },
-              "Resource": "arn:${AWS::Partition}:states:::aws-sdk:ec2:terminateInstances",
-              "Next": "Cleanup EventBridge Rule",
-              "ResultPath": null
-            },
-                "Cleanup EventBridge Rule": {
-              "Type": "Task",
-              "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-CleanupEBRule",
-              "Parameters": {
-                "INSTANCE_ID.$": "$.LaunchedInstanceId"
-              },
-              "Next": "Tag Ami",
-              "TimeoutSeconds": 5,
-              "ResultPath": null
-            },
-            "Tag Ami": {
-                "Type": "Task",
-                "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-TagAMI",
-                "Parameters": {
-                  "AMI_ID.$": "$.AmiId",
-                  "KEY_NAME": "AMIScannerStatus",
-                  "KEY_VALUE.$": "$.S3Bucket"
-                },
-                "Next": "Publish Notification",
-                "TimeoutSeconds": 5,
-                "ResultPath": null
-              },
-            "Publish Notification": {
-              "Type": "Task",
-              "Resource": "arn:${AWS::Partition}:states:::sns:publish",
-              "Parameters": {
-                "TopicArn.$": "$.SnsTopic",
-                "Message": {
-                  "AWS Inspector AMI Scan status": "EC2 instance",
-                  "Instance cleanup.$": "$.LaunchedInstanceId",
-                  "Inspector report S3 Bucket.$": "$.S3Bucket",
-                  "For AMI.$": "$.AmiId"
-                }
-              },
-              "End": true
-            }
-          }
-        }
-      RoleArn: !GetAtt StateMachineRole.Arn
-      StateMachineType: STANDARD
+  # Part2StepFunctionsStateMachine:
+  #   Type: AWS::StepFunctions::StateMachine
+  #   Properties:
+  #     StateMachineName: AMIScanner-Part2-InspectorReport-Cleanup
+  #     DefinitionString: !Sub |
+  #       {
+  #         "Comment": "Trigger Launch of EC2 instance by Inspector Scanning",
+  #         "StartAt": "Create Inspector Report",
+  #         "States": {
+  #           "Create Inspector Report": {
+  #             "Type": "Task",
+  #             "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-InspectorFindingsReport",
+  #             "Parameters": {
+  #               "INSTANCEID.$": "$.LaunchedInstanceId",
+  #               "AMI.$": "$.AmiId",
+  #               "KEYNAME.$": "$.KeyName",
+  #               "S3REPORTFORMAT.$": "$.S3ReportFormat",
+  #               "S3BUCKET.$": "$.S3Bucket"
+  #             },
+  #             "Next": "Terminate EC2",
+  #             "TimeoutSeconds": 5,
+  #             "ResultPath": null,
+  #             "Retry": [
+  #               {
+  #                 "ErrorEquals": [
+  #                   "States.TaskFailed"
+  #                 ],
+  #                 "BackoffRate": 1,
+  #                 "IntervalSeconds": 60,
+  #                 "MaxAttempts": 10,
+  #                 "Comment": "FindingReportRetryQueue"
+  #               }
+  #             ]
+  #           },
+  #           "Terminate EC2": {
+  #             "Type": "Task",
+  #             "Parameters": {
+  #               "InstanceIds.$": "States.Array($.LaunchedInstanceId)"
+  #             },
+  #             "Resource": "arn:${AWS::Partition}:states:::aws-sdk:ec2:terminateInstances",
+  #             "Next": "Cleanup EventBridge Rule",
+  #             "ResultPath": null
+  #           },
+  #               "Cleanup EventBridge Rule": {
+  #             "Type": "Task",
+  #             "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-CleanupEBRule",
+  #             "Parameters": {
+  #               "INSTANCE_ID.$": "$.LaunchedInstanceId"
+  #             },
+  #             "Next": "Tag Ami",
+  #             "TimeoutSeconds": 5,
+  #             "ResultPath": null
+  #           },
+  #           "Tag Ami": {
+  #               "Type": "Task",
+  #               "Resource": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:AMIScanner-TagAMI",
+  #               "Parameters": {
+  #                 "AMI_ID.$": "$.AmiId",
+  #                 "KEY_NAME": "AMIScannerStatus",
+  #                 "KEY_VALUE.$": "$.S3Bucket"
+  #               },
+  #               "Next": "Publish Notification",
+  #               "TimeoutSeconds": 5,
+  #               "ResultPath": null
+  #             },
+  #           "Publish Notification": {
+  #             "Type": "Task",
+  #             "Resource": "arn:${AWS::Partition}:states:::sns:publish",
+  #             "Parameters": {
+  #               "TopicArn.$": "$.SnsTopic",
+  #               "Message": {
+  #                 "AWS Inspector AMI Scan status": "EC2 instance",
+  #                 "Instance cleanup.$": "$.LaunchedInstanceId",
+  #                 "Inspector report S3 Bucket.$": "$.S3Bucket",
+  #                 "For AMI.$": "$.AmiId"
+  #               }
+  #             },
+  #             "End": true
+  #           }
+  #         }
+  #       }
+  #     RoleArn: !GetAtt StateMachineRole.Arn
+  #     StateMachineType: STANDARD
 
   AMIScannerStateMachinePolicy:
     Type: 'AWS::IAM::ManagedPolicy'
