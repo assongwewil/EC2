@@ -7,18 +7,7 @@ Metadata:
     Version: "v.1.0.2"
 Description: "CloudFormation template for all required resources to leverage AWS Inspector to scan a multiple AMIs on a schedule basis"
 
-# ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
-# ║ Multi-AMI Scanner - CloudFormation Template Parameters                                                                                           ║
-# ╠═══════════════════════════════╤════════════════╤═════════════════════════════════════════════════════════════════════════════════════════════════╣
-# ║ InspectorReportFormat         │ String (list)  │ Valid options are 'CSV' or 'JSON' (case sensitive)                                              ║
-# ║ InstanceType                  │ String (list)  │ Used to define which instance type to load the AMI onto temporarily                             ║
-# ║ InstanceSubnetID              │ String         │ Used to define the existing subnetID which the temporary instance will launch into              ║
-# ║ AMITagName                    │ String         │ Used to define the AMI tag name used for checking if the AMI should be Inspector scanned        ║
-# ║ AMITagValue                   │ String         │ Used to define the AMI tag value used for checking if the AMI should be Inspector scanned       ║
-# ║ S3ReportBucketName            │ String         │ Used to define the S3 bucket name where the Inspector scanned reports will be exported          ║
-# ║ KmsKeyAdministratorRole       │ String         │ Used to define which exiting IAM role needs to have Administrator access to the Kms key created ║
-# ║ SnsTopic                      │ String         │ Used to define which SNS topic completion notifications are published to                        ║
-# ╚═══════════════════════════════╧════════════════╧═════════════════════════════════════════════════════════════════════════════════════════════════╝
+
 Parameters:
     InspectorReportFormat:
       Type: String
@@ -67,45 +56,7 @@ Parameters:
       Default: InspectorScanner
       Description: Enter the SNS topic name for notification publishing
                        
-# ╔═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
-# ║ Multi-AMI Scanner - CloudFormation Template Resources                                                                                                               ║
-# ╠═══════════════════════════════════════════╤═══════════════════════════════════╤═════════════════════════════════════════════════════════════════════════════════════╣
-# ║ TagAMILambdaFunction                      │ AWS::Lambda::Function             │ Function for tagging EC2 images once scanning has completed from the state machine  ║
-# ║ CreateEBRuleLambdaFunction                │ AWS::Lambda::Function             │ Function to create a temporary Eventbridge rule to capture instance scanning events ║
-# ║ CleanupEBRuleLambdaFunction               │ AWS::Lambda::Function             │ Function for removing the Eventbridge rule created for capturing scanning events    ║
-# ║ CreateInspectorReportLambdaFunction       │ AWS::Lambda::Function             │ Function to create an Inspector report and export to an S3 bucket                   ║
-# ║ TerminateEC2LambdaFunction                │ AWS::Lambda::Function             │ Function to terminate the temporary EC2 instance                                    ║
-# ║ GetAMILambdaFunction                      │ AWS::Lambda::Function             │ Function to retrieve the list of AMIs for scanning that match tags                  ║
-# ║ Part1StepFunctionsStateMachine            │ AWS::StepFunctions::StateMachine  │ State machine to coordinate Part 1 of the AMI scanning workflow and tasks           ║
-# ║ Part2StepFunctionsStateMachine            │ AWS::StepFunctions::StateMachine  │ State machine to coordinate Part 2 of the AMI scanning workflow and tasks           ║
-# ║ AMIScannerStateMachinePolicy              │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the State Machines to complete tasks             ║
-# ║ TagAMILambdaPolicy                        │ AWS::IAM::ManagedPolicy           │ Custom policy for providing permissions for tagging AMI Lambda function             ║
-# ║ InvokeStateMachineEventbridgeRole         │ AWS::IAM::Role                    │ Role for invoking the state machine from Eventbridge rule                           ║
-# ║ InvokeStateMachineEventbridgePolicy       │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the State Machine                                ║
-# ║ AMIScannerInvokeScheduledGetAMIRole       │ AWS::IAM::Role                    │ Role for invoking the state machine from Eventbridge rule                           ║
-# ║ AMIScannerInvokeScheduledGetAMIPolicy     │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the Lambda function                              ║
-# ║ CreateEBRuleLambdaFunctionRole            │ AWS::IAM::Role                    │ Role for Lambda function to create temporary EventBridge rule                       ║
-# ║ CreateEBRuleLambdaFunctionRolePolicy      │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the Lambda function                              ║
-# ║ CleanupEBRuleLambdaFunctionRole           │ AWS::IAM::Role                    │ Role for Lambda function to remove temporary EventBridge rule                       ║
-# ║ CleanupEBRuleLambdaFunctionRolePolicy     │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the Lambda function                              ║
-# ║ InspectorFindingsLambdaFunctionRole       │ AWS::IAM::Role                    │ Role for Lambda function to generate inspector findings                             ║
-# ║ InspectorFindingsLambdaFunctionRolePolicy │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the Lambda function                              ║
-# ║ TerminateEC2LambdaFunctionPolicy          │ AWS::IAM::ManagedPolicy           │ Custom policy to provide access to the Lambda function                              ║
-# ║ TerminateEC2LambdaFunctionRole            │ AWS::IAM::Role                    │ Role for Lambda function to terminate the temporary EC2 instance                    ║
-# ║ StateMachineRole                          │ AWS::IAM::Role                    │ Role for step functions state machine                                               ║
-# ║ TagAMILambdaFunctionRole                  │ AWS::IAM::Role                    │ Role for Lambda function to tag an EC2 AMI                                          ║
-# ║ ReportsS3Bucket                           │ AWS::S3::Bucket                   │ S3 Bucket to store inspector findings                                               ║
-# ║ S3BucketPolicy                            │ AWS::S3::BucketPolicy             │ Policy document providing access to S3 bucket for Inspector                         ║
-# ║ EC2InstanceRole                           │ AWS::IAM::Role                    │ Role for EC2 SSM access                                                             ║
-# ║ EC2InstanceProfile                        │ AWS::IAM::InstanceProfile         │ Instance profile to attach to EC2 instance                                          ║
-# ║ AMIScannerSNSTopic                        │ AWS::SNS::Topic                   │ Topic for sending solution notifications                                            ║
-# ║ KMSKey                                    │ AWS::KMS::Key                     │ Key for generation of Inspector finding report                                      ║
-# ║ KMSKeyAlias                               │ AWS::KMS::Alias                   │ Alias (name identifier) for KMS key                                                 ║
-# ║ GetAMILambdaPolicy                        │ AWS::IAM::ManagedPolicy           │ IAM custom policy to provide access to the Lambda function                          ║
-# ║ GetAMILambdaFunctionRole                  │ AWS::IAM::Role                    │ IAM role for Lambda function to retrieve the list of AMIs for scanning              ║
-# ║ EventRule                                 │ AWS::Events::Rule                 │ Rule for scheduling the trigger of the GetAMILambdaFunctionIAM                      ║
-# ║ AccessEventsToInvokeLambda                │ AWS::Lambda::Permission           │ Permission for Eventbridge to invoke the GetAMILambdaFunction                       ║
-# ╚═══════════════════════════════════════════╧═══════════════════════════════════╧═════════════════════════════════════════════════════════════════════════════════════╝
+
 Resources:
 #when AMI are created, event bridge trigger this lambda, lambda gets AMI from the event and create tags 
   TagAMILambdaFunction:
